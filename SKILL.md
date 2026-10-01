@@ -3,6 +3,8 @@ name: kpmg-bid-negotiation-flow
 description: End-to-end test for the bid negotiation query flow — login, open the RFQ Journey sidebar, filter to an RFQ in the "In Negotiation" status, ask for a negotiation analysis, then keep answering follow-up questions the user wants to ask until they say stop.
 ---
 
+# Skill: Bid Negotiation Query
+
 ## What this skill tests
 A buyer logs in, opens the RFQ Journey sidebar, filters to RFQs in the "In Negotiation" status, picks one, and asks the agent to analyze the negotiation via the main chat. This skill verifies that flow end-to-end, then keeps asking follow-up questions on the user's behalf until they say to stop.
 
@@ -40,19 +42,21 @@ Poll loop — repeat up to 24 times (2 minutes total):
 **Do not ask the user anything during this wait. Just poll silently.**
 
 ### Step 4 — Open the RFQ Journey sidebar
-1. The RFQ list lives in a hover-triggered side panel titled "RFQ Journey", not a click-to-open page — there's no direct URL for it. Call `browser_hover` on the slim nav rail/icon at the left edge of the screen (try a left-edge icon or strip first; if unsure which element, call `browser_get_html` and look for a collapsed nav element near the left edge, or an icon with a title/tooltip containing "Journey" or "RFQ").
+1. There is a narrow (~60px wide) icon rail fixed to the left edge of the screen, with a few icons stacked vertically (Home icon first, then a **compass icon** right below it). **Click the compass icon** — this is a CLICK, not a hover (hovering it only shows a "Journey" tooltip; the click is what actually opens the panel).
 2. Call `browser_read` to confirm.
 3. **Assert**: page text now contains "RFQ Journey".
-4. If a later step's click/select seems to fail because the panel closed, re-`browser_hover` the same trigger before retrying — this panel can close when the mouse leaves its trigger area.
+4. Once open, the panel auto-closes about 250ms after the mouse leaves it — keep your next actions (status filter, row click) targeted at elements inside the panel rather than moving to something else in between. If a later step fails because the panel closed, click the compass icon again before retrying.
 
 ### Step 5 — Filter to "In Negotiation" and pick an RFQ
 1. Call `browser_select_option` on the status filter — selector `select[aria-label="Filter by status"]` — with value/label `"In Negotiation"`.
-2. Call `browser_read` to see the filtered list.
-3. **Assert**: at least one RFQ is shown. If none, report **BLOCKED** — there is no RFQ in `in_negotiation` status to test against in this environment.
-4. If there are 2 or more RFQs, call `ask_user` with the question "Here are the RFQs currently in negotiation — which one should I test?" and `options` set to the actual RFQ titles you just read (up to 4; if there are more than 4, list the first 4). If there is exactly one, use it directly without asking.
-5. Call `browser_click` on the row matching the chosen title — scope the selector to that exact row/text, not a bare tag, since the list can contain several rows.
-6. Call `browser_read`.
-7. **Assert**: the page no longer shows the RFQ list — it now shows the RFQ workspace (look for section/tab names such as "Track", "Negotiation Setup", "Bid Comparison", "Bid Response Analysis", "Ranking", or the RFQ's own title).
+2. Selecting a status always triggers a real new network request (it is not a client-side filter over already-loaded data), so the list will show "Loading..." again — poll for it to clear rather than assuming it's instant. Repeat up to 8 times (about 40 seconds total): call `browser_read`; if it still shows "Loading..." call `browser_wait` on `body` with `timeoutMs: 5000` and poll again; stop once "Loading..." is gone.
+3. If it is STILL showing "Loading..." after ~40 seconds, this is a known possible backend issue, not something you can fix by clicking around: the app's RFQ-list fetch has no timeout or retry, so if the backend request stalls, the UI can hang on "Loading..." indefinitely with no recovery. You may try re-opening the panel (click the compass icon, wait again) ONCE as a single sanity check, but do not loop on this indefinitely. If it's still stuck after that, report **BLOCKED** at this step: "RFQ list stuck on Loading after filtering to In Negotiation — likely a backend non-responsiveness issue (the frontend has no fetch timeout), not a browser-automation problem."
+4. Once the list has loaded, call `browser_read` to see the filtered list.
+5. **Assert**: at least one RFQ is shown. If the list loaded but is genuinely empty, report **BLOCKED** — there is no RFQ in `in_negotiation` status to test against in this environment.
+6. If there are 2 or more RFQs, call `ask_user` with the question "Here are the RFQs currently in negotiation — which one should I test?" and `options` set to the actual RFQ titles you just read (up to 4; if there are more than 4, list the first 4). If there is exactly one, use it directly without asking.
+7. Call `browser_click` on the row matching the chosen title — scope the selector to that exact row/text, not a bare tag, since the list can contain several rows.
+8. Call `browser_read`.
+9. **Assert**: the page no longer shows the RFQ list — it now shows the RFQ workspace (look for section/tab names such as "Track", "Negotiation Setup", "Bid Comparison", "Bid Response Analysis", "Ranking", or the RFQ's own title).
 
 ### Step 6 — Ask for the negotiation analysis
 1. Find the chat input. It is the single global composer used for everything in this app — a `<textarea>` with placeholder `"How can I help?"` (it may briefly show `"Please wait..."` if the agent is mid-reply — wait it out before typing).
@@ -78,7 +82,7 @@ Repeat this loop until the user stops it:
 ---
 
 ## Pass criteria
-Steps 4, 5, 6 pass (an RFQ in `in_negotiation` was found and opened, and the first analysis query produced a real, non-empty response) = test passes. Step 3 may be BLOCKED by OTP timeout — note it clearly. Step 7 isn't pass/fail — it's interactive follow-up driven entirely by the user.
+Steps 4, 5, 6 pass (an RFQ in `in_negotiation` was found and opened, and the first analysis query produced a real, non-empty response) = test passes. Step 3 may be BLOCKED by OTP timeout, and Step 5 may be BLOCKED by the RFQ list hanging on Loading — note either clearly. Step 7 isn't pass/fail — it's interactive follow-up driven entirely by the user.
 
 ## Report format
 After the user says stop, report:
@@ -89,8 +93,8 @@ After the user says stop, report:
 - [PASS/FAIL/BLOCKED] Step 1 — Login page loaded
 - [PASS/FAIL/BLOCKED] Step 2 — OTP requested
 - [PASS/FAIL/BLOCKED] Step 3 — Reached main app
-- [PASS/FAIL] Step 4 — RFQ Journey sidebar opened
-- [PASS/FAIL/BLOCKED] Step 5 — RFQ in "In Negotiation" status found and opened (name it)
+- [PASS/FAIL] Step 4 — RFQ Journey sidebar opened (compass icon clicked)
+- [PASS/FAIL/BLOCKED] Step 5 — RFQ in "In Negotiation" status found and opened (name it; note if blocked by a stuck Loading state)
 - [PASS/FAIL] Step 6 — Negotiation analysis query answered
 - Follow-up questions asked: [list each question the user asked and a one-line summary of the response]
 - [PASS/FAIL] Step 8 — No unexpected console/network errors
