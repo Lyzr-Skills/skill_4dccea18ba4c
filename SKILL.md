@@ -3,6 +3,21 @@ name: kpmg-bid-negotiation-flow
 description: End-to-end test for the bid negotiation query flow — login, open the RFQ Journey sidebar, filter to an RFQ in the "In Negotiation" status, ask for a negotiation analysis, then keep answering follow-up questions the user wants to ask until they say stop.
 ---
 
+# Name
+
+```
+bid-negotiation-query
+```
+
+# Description
+
+```
+End-to-end test for the bid negotiation query flow — login, open the RFQ Journey sidebar, filter to an RFQ in the "In Negotiation" status, ask for a negotiation analysis, then keep answering follow-up questions the user wants to ask until they say stop.
+```
+
+# Instructions
+
+```
 # Skill: Bid Negotiation Query
 
 ## What this skill tests
@@ -54,9 +69,14 @@ Poll loop — repeat up to 24 times (2 minutes total):
 4. Once the list has loaded, call `browser_read` to see the filtered list.
 5. **Assert**: at least one RFQ is shown. If the list loaded but is genuinely empty, report **BLOCKED** — there is no RFQ in `in_negotiation` status to test against in this environment.
 6. If there are 2 or more RFQs, call `ask_user` with the question "Here are the RFQs currently in negotiation — which one should I test?" and `options` set to the actual RFQ titles you just read (up to 4; if there are more than 4, list the first 4). If there is exactly one, use it directly without asking.
-7. Call `browser_click` on the row matching the chosen title — scope the selector to that exact row/text, not a bare tag, since the list can contain several rows.
-8. Call `browser_read`.
-9. **Assert**: the page no longer shows the RFQ list — it now shows the RFQ workspace (look for section/tab names such as "Track", "Negotiation Setup", "Bid Comparison", "Bid Response Analysis", "Ranking", or the RFQ's own title).
+7. **This panel only stays open while it's being interacted with — it auto-closes about 250ms after it stops being hovered, and a full round-trip to decide your next action is almost always slower than that, so treat it as already closed by the time you act.** Right before clicking the row:
+   - Call `browser_hover` on the status filter (or any stable element inside the panel) first, to make sure the panel is actually open right now.
+   - Call `browser_evaluate` with a script like `[...document.querySelectorAll('button.w-full')].map(e => e.innerText)` to get each row's CURRENT exact text (don't reuse text you read several steps ago — match the exact casing shown, e.g. "In Negotiation" with capitals, not "in negotiation").
+   - Build the click selector from an exact, currently-true substring (e.g. the RFQ's title/number, which is unique) — don't chain multiple `:has()`/`:text-is()` conditions guessing at exact wording, one precise fragment is more robust than several guesses.
+   - Call `browser_click` immediately after the above, with no other calls in between.
+8. If the click fails with "no element found" / 0 matches, don't try a longer or more exotic selector — that almost always means the panel already closed, not that the selector was wrong. Click the compass icon again, re-apply the status filter (step 1 of this section), and retry the row click immediately.
+9. Call `browser_read`.
+10. **Assert**: the page no longer shows the RFQ list — it now shows the RFQ workspace (look for section/tab names such as "Track", "Negotiation Setup", "Bid Comparison", "Bid Response Analysis", "Ranking", or the RFQ's own title).
 
 ### Step 6 — Ask for the negotiation analysis
 1. Find the chat input. It is the single global composer used for everything in this app — a `<textarea>` with placeholder `"How can I help?"` (it may briefly show `"Please wait..."` if the agent is mid-reply — wait it out before typing).
